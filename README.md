@@ -1,5 +1,7 @@
 # Big_data_project23
 
+Spark version==3.4.1
+
 # Comandi utili da terminale
 
 ## start zookeeper
