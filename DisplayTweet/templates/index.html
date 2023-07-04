@@ -1,0 +1,90 @@
+<!-- 
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visualizzazione dei dati</title>
+</head>
+<body>
+    <h1>Dati:</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Chiave</th>
+                <th>Valore</th>
+                <th>Sentimento</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in g.data %}
+            <tr>
+                <td>{{ item.key }}</td>
+                <td>{{ item.value }}</td>
+                <td>{{ item.sentiment }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+
+-->
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visualizzazione dei dati</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Tweet recuperati e relativa Sentiment Analysis:</h1>
+        <table class="table table-striped", id="data-table">
+            <thead>
+                <tr>
+                <th>Num</th>
+                <th>Tweet</th>
+                <th>Sentiment</th>
+            </tr>
+            </thead>
+            <tbody>
+                {% for item in g.data %}
+                <tr>
+                    <td>{{ item.key }}</td>
+                    <td>{{ item.value }}</td>
+                    <td>{{ item.sentiment }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        function updateData() {
+            $.ajax({
+                url: '/get_data',
+                method: 'GET',
+                success: function(data) {
+                    $('.container #data-table tbody').html('');
+                    data.forEach(function(item) {
+                        var row = '<tr>' +
+                                  '<td>' + item.key + '</td>' +
+                                  '<td>' + item.value + '</td>' +
+                                  '<td>' + item.sentiment + '</td>' +
+                                  '</tr>';
+                        $('.container #data-table tbody').append(row);
+                    });
+                },
+                error: function(error) {
+                    console.log(error);
+                }
+            });
+        }
+
+        // Aggiorna i dati ogni 2 secondi
+        setInterval(updateData, 2000);
+    </script>
+</body>
+</html>
+
+
