@@ -14,13 +14,17 @@ import requests
 import json
 import numpy as np
 import nltk
+from nltk import pos_tag
+from nltk.stem import WordNetLemmatizer
+from collections import defaultdict
+from nltk.corpus import wordnet as wn
+import contractions
 
 import time
 
 #from pyspark.ml import PipelineModel
 from pyspark.sql import SparkSession
 from nltk.sentiment import SentimentIntensityAnalyzer
-
 
 import pickle
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -30,10 +34,13 @@ import joblib
 from nltk.stem import WordNetLemmatizer
 
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
-KAFKA_TOPIC =  'tweet_retriever'                                                                                                # "my_topic2"
+KAFKA_TOPIC =  'tweet_retriever'      
 
 nltk.download('vader_lexicon')
-nltk.download('stopwords')
+nltk.download('averaged_perceptron_tagger')
+nltk.download("stopwords")
+nltk.download('punkt')
+nltk.download('wordnet')
 
 
 spark = SparkSession.builder.appName("Spark_Consumer_Tweet").getOrCreate()
@@ -80,28 +87,54 @@ def predict_sentiment(tweet):
 #LA REGISTRO COME UDF
 spark.udf.register("predict_sentiment_udf", predict_sentiment, StringType())
 
-
-# Definisco la funzione per processare i tweet questa utilizza un modello addestrato da noi
-def predict_sentiment(tweet):
+# Definisco la funzione per processare i tweet questa utilizza un modello addestrato da noi che include anche il preprocessing
+def predict_sentiment2(tweet):
+    from nltk.corpus import stopwords
+    from nltk.stem import WordNetLemmatizer
+    from nltk.corpus import wordnet as wn
+    from nltk import pos_tag
+    
     # Load the pre-trained model
     model = joblib.load('naive_bayes.joblib')
     Tfidf_vect = pickle.load(open('vectorizer.pickle', "rb"))
-    print("model loaded", type(model),"tweet", type(tweet.decode('utf-8')))
-    time.sleep(5)
-    tweet= Tfidf_vect.transform([tweet.decode('utf-8')])
+
+    tweet = tweet.decode('utf-8')
+
+    #print("model loaded", type(model),"tweet", type(tweet))
+    #time.sleep(5)
+
+    #-----------------preprocessing---------------------
+    tweet=contractions.fix(tweet)
+    words = word_tokenize(tweet)
+    words = [word.lower() for word in words]
+    words = [word for word in words if word.isalpha()]  
+    words = [w for w in words if not w in stopwords.words('english')]
+    tag_map = defaultdict(lambda : wn.NOUN)
+    tag_map['J'] = wn.ADJ
+    tag_map['V'] = wn.VERB
+    tag_map['R'] = wn.ADV
+    lemmatizer = WordNetLemmatizer()
+    words = [lemmatizer.lemmatize(word,tag_map[tag[0]]) for word,tag in pos_tag(words)]
+    #---------------------------------------------------
+
+    # Vectorize the tweet
+    tweet= Tfidf_vect.transform([str(words)])
     # Predict sentiment using the model
     sentiment = model.predict(tweet)
     
-    if sentiment > 0.5:
+    #print(sentiment)
+
+    average = sum(sentiment) / len(sentiment)
+    if average > 0.5:
         return ("positive")
     else:
-        if sentiment == 0.5:
+        if average == 0.5:
             return("neutral")
         else:
             return("negative")
 
 # Register the UDF
-spark.udf.register("predict_sentiment", predict_sentiment, StringType())
+spark.udf.register("predict_sentiment2_udf", predict_sentiment2, StringType())
 
 
 #---------------------------------------------
