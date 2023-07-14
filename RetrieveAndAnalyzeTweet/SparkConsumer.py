@@ -1,47 +1,70 @@
-
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json,expr
-from pyspark.sql.types import StructType, StructField, StringType, IntegerType
-
-import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.tokenize import word_tokenize
-from nltk.sentiment import SentimentIntensityAnalyzer
 from pyspark.sql.functions import udf
-
+from pyspark.sql.types import StringType, ArrayType
+from pyspark.ml import Transformer
+from pyspark.ml.param.shared import HasInputCol, HasOutputCol
+from pyspark.ml.util import DefaultParamsReadable, DefaultParamsWritable
+from pyspark.ml import PipelineModel
+import re
 import requests 
 import json
 import numpy as np
-import nltk
-from nltk import pos_tag
-from nltk.stem import WordNetLemmatizer
-from collections import defaultdict
 from nltk.corpus import wordnet as wn
-import contractions
-
-import time
-
-#from pyspark.ml import PipelineModel
-from pyspark.sql import SparkSession
-from nltk.sentiment import SentimentIntensityAnalyzer
-
-import pickle
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.pipeline import make_pipeline
-#from sklearn.externals import joblib
-import joblib
 from nltk.stem import WordNetLemmatizer
+
+
+
+class Lemmatizer(Transformer, HasInputCol, HasOutputCol, DefaultParamsReadable, DefaultParamsWritable):
+    def __init__(self, inputCol, outputCol):
+        super(Lemmatizer, self).__init__()
+        self._inputCol = "filtered"
+        self._outputCol = "lemmatized"
+        self.lemmatizer = WordNetLemmatizer()
+
+    def __init__(self):
+        super(Lemmatizer, self).__init__()
+        self._inputCol = "filtered"
+        self._outputCol = "lemmatized"
+        self.lemmatizer = WordNetLemmatizer()
+
+    def setInputCol(self, value):
+        return self._set(inputCol=value)
+
+    def getInputCol(self):
+        return self._inputCol
+
+    def setOutputCol(self, value):
+        return self._set(outputCol=value)
+
+    def getOutputCol(self):
+        return self._outputCol
+
+    def _transform(self, dataset):
+        lemmatize_udf = udf(lambda words: [self.lemmatizer.lemmatize(word) for word in words if len(word) > 0], ArrayType(StringType()))
+        return dataset.withColumn(self.getOutputCol(), lemmatize_udf(dataset[self.getInputCol()]))
+    
+# Funzione per rimuovere le emoji
+emoji_pattern = re.compile("["
+                           u"\U0001F600-\U0001F64F"  # emoticons
+                           u"\U0001F300-\U0001F5FF"  # simboli e punti di codice
+                           u"\U0001F680-\U0001F6FF"  # simboli di trasporto e mappe
+                           u"\U0001F1E0-\U0001F1FF"  # bandiere (emoji bandiera)
+                           u"\u0023-\u0039\u2000-\u206F\u2300-\u23FF\u2600-\u26FF\u2700-\u27BF"  # sequenze di caratteri emoji
+                           "]+")
+remove_emoji_udf = udf(lambda text: emoji_pattern.sub(r'', text))
+
+# Funzione per rimuovere i link
+url_pattern = re.compile(r"http\S+|www\S+")
+remove_url_udf = udf(lambda text: url_pattern.sub(r'', text))
+
+# Funzione per rimuovere le menzioni degli utenti
+mention_pattern = re.compile(r"@\w+")
+remove_mention_udf = udf(lambda text: mention_pattern.sub(r'', text))
+
+
 
 KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 KAFKA_TOPIC =  'tweet_retriever'      
-
-nltk.download('vader_lexicon')
-nltk.download('averaged_perceptron_tagger')
-nltk.download("stopwords")
-nltk.download('punkt')
-nltk.download('wordnet')
-
 
 spark = SparkSession.builder.appName("Spark_Consumer_Tweet").getOrCreate()
     #togliere il commento per compilare da ide
@@ -49,127 +72,59 @@ spark = SparkSession.builder.appName("Spark_Consumer_Tweet").getOrCreate()
     #.getOrCreate()
 
 
-def SendTweetToFlaskApp (row):
+def SendTweetToFlaskApp (key,value,sentiment):
 	url = 'http://localhost:5000/data'
 	
-	data={'key': row.key,
-    	'value' : row.value,
-    	'sentiment' : row.sentiment}
+	data={'key': key,
+    	'value' : value,
+    	'sentiment' : sentiment}
         
 	json_data = json.dumps(data)
 	response = requests.post(url, json=json_data)
-#registrazione come UDF
-spark.udf.register("SendTweetToFlaskApp", SendTweetToFlaskApp, StringType())
-	
-# Definisco la funzione per processare i tweet (questa è quella finta)
-def ProcessTweetLenght(value):
-    print("processing tweets")
-    return len(str(value))
-#LA REGISTRO COME UDF
-spark.udf.register("ProcessTweetLenght", ProcessTweetLenght, StringType()) 
 
-# Definisco la funzione per processare i tweet questa utilizza un modello già addestrato dalla libreria nltk
-def predict_sentiment(tweet):
-    sia = SentimentIntensityAnalyzer()
-    
-
-    result=sia.polarity_scores(tweet.decode('utf-8'))['compound'], StringType()
-    print(result[0])
-    if result[0] > 0.05:
-        print("positive")
-        return "positive"
-    elif result[0] < -0.05:
-        print("negative")
-        return "negative"
-    else:
-        print("neutral")
-        return "neutral"
-#LA REGISTRO COME UDF
-spark.udf.register("predict_sentiment_udf", predict_sentiment, StringType())
-
-# Definisco la funzione per processare i tweet questa utilizza un modello addestrato da noi che include anche il preprocessing
-def predict_sentiment2(tweet):
-    from nltk.corpus import stopwords
-    from nltk.stem import WordNetLemmatizer
-    from nltk.corpus import wordnet as wn
-    from nltk import pos_tag
-    
-    # Load the pre-trained model
-    model = joblib.load('naive_bayes.joblib')
-    Tfidf_vect = pickle.load(open('vectorizer.pickle', "rb"))
-
-    tweet = tweet.decode('utf-8')
-
-    #print("model loaded", type(model),"tweet", type(tweet))
-    #time.sleep(5)
-
-    #-----------------preprocessing---------------------
-    tweet=contractions.fix(tweet)
-    words = word_tokenize(tweet)
-    words = [word.lower() for word in words]
-    words = [word for word in words if word.isalpha()]  
-    words = [w for w in words if not w in stopwords.words('english')]
-    tag_map = defaultdict(lambda : wn.NOUN)
-    tag_map['J'] = wn.ADJ
-    tag_map['V'] = wn.VERB
-    tag_map['R'] = wn.ADV
-    lemmatizer = WordNetLemmatizer()
-    words = [lemmatizer.lemmatize(word,tag_map[tag[0]]) for word,tag in pos_tag(words)]
-    #---------------------------------------------------
-
-    # Vectorize the tweet
-    tweet= Tfidf_vect.transform([str(words)])
-    # Predict sentiment using the model
-    sentiment = model.predict(tweet)
-    
-    #print(sentiment)
-
-    average = sum(sentiment) / len(sentiment)
-    if average > 0.5:
-        return ("positive")
-    else:
-        if average == 0.5:
-            return("neutral")
-        else:
-            return("negative")
-
-# Register the UDF
-spark.udf.register("predict_sentiment2_udf", predict_sentiment2, StringType())
-
-
-#---------------------------------------------
-# Reduce logging
-spark.sparkContext.setLogLevel("ERROR")
-
-#connessione a kafka
+# Connessione a kafka
 df = spark.readStream.format("kafka") \
     .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
     .option("subscribe", KAFKA_TOPIC) \
     .option("startingOffsets", "earliest") \
     .load()
+
+
+# Carico il modello addestrato dalla directory
+model = PipelineModel.load('pipeline')
+
+def process_row(df, epoch_id):
+    global model
+    # Converte il DataFrame in una lista di righe
+    rows = df.collect()
     
-# Applico la logica per determinare il sentiment
-
-#togliere il commento se si vuole usare la funzione finta
-#df = df.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)") \
-#    .withColumn("sentiment", expr("ProcessTweet2(value)")) \
-#    .groupBy("key") \
-#    .agg(expr("COLLECT_LIST(value) AS value"), expr("COLLECT_LIST(sentiment) AS sentiment"))
-
-df = df.withColumn("sentiment", expr("predict_sentiment2_udf(value)"))
+    for row in rows:
         
-df = df.groupBy("key").agg(expr("COLLECT_LIST(value) AS value"), expr("COLLECT_LIST(sentiment) AS sentiment"))
+        key = row.key.decode("utf-8")
+        print(key)
+        value = row.value.decode("utf-8")
+        print(value)
+        tweet = [(value,)]
 
+        tweet = spark.createDataFrame(tweet, ["tweet"])
 
-# Seleziono le colonne desiderate come output
-df = df.selectExpr("CAST(key AS STRING)", "CAST(value AS STRING)", "CAST(sentiment AS STRING)")
-df=df.select("key", "value", "sentiment") \
+        # Preprocessing del testo
+        tweet = tweet.withColumn('tweet', remove_emoji_udf('tweet'))
+        tweet = tweet.withColumn('tweet', remove_url_udf('tweet'))
+        tweet = tweet.withColumn('tweet', remove_mention_udf('tweet'))
 
+        # Predizione del sentimento
+        prediction = model.transform(tweet)
+        prediction = prediction.select("prediction").rdd.flatMap(lambda x: x).collect()
 
-#Scrivo i risultati
-query = df.writeStream \
-    .outputMode("update") \
-    .foreach(SendTweetToFlaskApp) \
-    .start()
+        if prediction[0] == 1.0:
+            sentiment= "positive"
+        else:   
+            sentiment="negative"
 
+        # Invio tramite la funzione Chiave, Tweet e Predizione a flask
+        SendTweetToFlaskApp(key, value, sentiment)
+
+# Per ogni batch di dati ricevuti da Kafka, esegue la funzione process_row
+query = df.writeStream.foreachBatch(lambda df, epoch_id: process_row(df, epoch_id)).start()
 query.awaitTermination()
