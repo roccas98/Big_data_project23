@@ -1,11 +1,11 @@
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml import Pipeline
-from pyspark.ml.classification import NaiveBayes, LinearSVC, LogisticRegression
+from pyspark.ml.classification import NaiveBayes, LinearSVC, LogisticRegression, RandomForestClassifier
 from pyspark.ml.feature import IDF, Tokenizer, StopWordsRemover
 from pyspark.sql.functions import udf
 from pyspark.sql.types import IntegerType,StringType, ArrayType
 from pyspark.sql import SparkSession
-from pyspark.ml.feature import CountVectorizer
+from pyspark.ml.feature import CountVectorizer, VectorIndexer
 from pyspark.ml import Transformer
 from pyspark.ml.param.shared import HasInputCol, HasOutputCol
 from pyspark.ml.util import DefaultParamsReadable, DefaultParamsWritable
@@ -89,26 +89,32 @@ lemmatizer = Lemmatizer(inputCol=stop_words_remover.getOutputCol(), outputCol='l
 hashing_tf = CountVectorizer(inputCol=lemmatizer.getOutputCol(), outputCol='tf')
 idf = IDF(inputCol=hashing_tf.getOutputCol(), outputCol='features')
 
+feature_indexer = VectorIndexer(inputCol="features", outputCol="indexedFeatures")
+
 # Creazione del modello
-nb = NaiveBayes(smoothing=1.0, modelType='multinomial')
+#nb = NaiveBayes(smoothing=1.0, modelType='multinomial')
 
 # Creazione del modello SVM
 #svm = LinearSVC(maxIter=10, regParam=0.1)
 
 # Creazione del modello Logistic Regression
-#lr = LogisticRegression(maxIter=10, regParam=0.3, elasticNetParam=0.8)
+lr = LogisticRegression(maxIter=10)
+
+#rf = RandomForestClassifier(labelCol="label", featuresCol="indexedFeatures", numTrees=10)
 
 (trainingData, testData) = data.randomSplit([0.8, 0.2])
 
 # Creazione della Pipeline
-pipeline = Pipeline(stages=[tokenizer,stop_words_remover, lemmatizer,hashing_tf, idf, nb])
+#pipeline = Pipeline(stages=[tokenizer,stop_words_remover, lemmatizer,hashing_tf, idf, nb])
 #pipeline = Pipeline(stages=[tokenizer,stop_words_remover, lemmatizer,hashing_tf, idf, svm])
-#pipeline = Pipeline(stages=[tokenizer,stop_words_remover, lemmatizer,hashing_tf, idf, lr])
+pipeline = Pipeline(stages=[tokenizer,stop_words_remover, lemmatizer,hashing_tf, idf, lr])
+#pipeline = Pipeline(stages=[tokenizer,stop_words_remover, lemmatizer,hashing_tf, idf, feature_indexer, rf])
 
 # Salva in una variabile il nome del modello da utilizzare
-model_name = 'NaiveBayes'
+#model_name = 'NaiveBayes'
 #model_name = 'SVM'
-#model_name = 'LogisticRegression'
+model_name = 'LogisticRegression'
+#model_name = 'RandomForest'
 
 # Addestramento del modello
 model = pipeline.fit(trainingData)

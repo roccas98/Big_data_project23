@@ -1,0 +1,1 @@
+{"class":"__main__.Lemmatizer","timestamp":1689342234307,"sparkVersion":"3.4.1","uid":"Lemmatizer_526b8c790b1d","paramMap":{},"defaultParamMap":{"outputCol":"Lemmatizer_526b8c790b1d__output"}}

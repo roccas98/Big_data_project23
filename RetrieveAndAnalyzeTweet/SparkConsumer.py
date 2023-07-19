@@ -91,7 +91,7 @@ df = spark.readStream.format("kafka") \
 
 
 # Carico il modello addestrato dalla directory
-model = PipelineModel.load('pipeline')
+model = PipelineModel.load('models/pipeline_SVM')
 
 def process_row(df, epoch_id):
     global model
