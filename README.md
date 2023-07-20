@@ -1,4 +1,9 @@
 # Big_data_project23
+l progetto consiste in una serie di programmi sviluppati in ambiente python che uti-
+lizzando principalmente le librerie "apache Kafka" e "apache spark" si occupano di
+prelevare determinati tweet appena essi vengono pubblicati analizzarli eseguendo un
+processo di sentiment analysis per poi riportare il testo e il risultato in una tabella
+all’interno di una pagina web.
 
 Spark version==3.4.1
 
